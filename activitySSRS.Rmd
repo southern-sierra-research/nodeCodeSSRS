@@ -1,0 +1,160 @@
+---
+title: "activitySSRS"
+author: "Patrick D. lorch"
+date: "2026-01-31"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Activity and behavior
+
+I have not used this yet.  This is Edwin Jacobo's code to create activity plots from nodes placed below or near nests.
+
+This code may not work without adding package libraries.
+
+# Nesting plots
+
+Write nesting behavior with day/night.
+
+```{r nesting}
+library(tidyverse)
+library(suncalc)
+
+# 1. Ensure POSIXct with correct tz
+df = df %>%
+  mutate(Time.group = as.POSIXct(Time.group, tz = "America/Los_Angeles"))
+
+coords = st_coordinates(df)
+
+df_sun = df %>%
+  mutate(
+    lat = coords[, "Y"],
+    lon = coords[, "X"],
+    date = as.Date(Time.group),
+    date_next = date + 1
+  ) %>%
+  dplyr::select(date, date_next, lat, lon)
+
+# 2. Get sunset for day i and sunrise for day i+1
+sunset_df = getSunlightTimes(
+  data = df_sun %>% dplyr::select(date, lat, lon),
+  keep = "sunset",
+  tz = "America/Los_Angeles"
+)
+sunrise_df = getSunlightTimes(
+  data = df_sun %>% dplyr::select(date = date_next, lat, lon),
+  keep = "sunrise",
+  tz = "America/Los_Angeles"
+)
+
+# 3. Apply 20-minute buffer
+sunset_buffered = sunset_df$sunset + minutes(20)
+sunrise_buffered = sunrise_df$sunrise - minutes(20)
+
+# 4. Function to convert POSIXct to minutes since midnight
+time_to_minutes = function(datetime) {
+  hour(datetime) * 60 + minute(datetime) + second(datetime)/60
+}
+
+# 5. Compute minutes for each datetime
+df_time_min = time_to_minutes(df$Time.group)
+sunset_min = time_to_minutes(sunset_buffered)
+sunrise_min = time_to_minutes(sunrise_buffered)
+
+# 6. Classify night/day with numeric logic
+df$TimeOfDay = ifelse(
+  (df_time_min >= sunset_min) | (df_time_min < sunrise_min),
+  "Night",
+  "Day"
+)
+df$TimeOfDay = factor(df$TimeOfDay, levels = c("Day", "Night"))
+
+df$TimeOnly = format(df$Time.group, format = "%H:%M:%S")
+
+##SAVE A GPKG
+df = df %>%
+  mutate(
+    timestamp = format(ymd_hms(Time.group), "%Y-%m-%d %H:%M:%S")
+  )
+
+st_write(df, "D:/Analysis/CTT/KRPWA2025/YBCU/YBCU_2025_Locations.gpkg", delete_layer = TRUE)
+
+write.csv(df, "YBCU_2025_Locations.csv")
+
+write.csv(beep.data, "D:/Analysis/CTT/KRPWA2025/YBCU/beep_data.csv")
+```
+
+
+## Incubation plots
+
+Incubation plots (one tag)
+
+```{r incubation}
+library(tidyverse)
+library(suncalc)
+
+incubation = beep.data %>% 
+  dplyr::filter(TagId == "612D4C2A",
+                NodeId == "37921C",
+                Date > "2025-07-23",
+                Date < "2025-08-12")
+
+
+# Define the coordinates for general area to calculate sunrise/sunset times
+latitude = 35.661810
+longitude = -118.339762
+
+# Generate a sequence of dates for the current year
+current_year = as.numeric(format(Sys.Date(), "%Y"))
+dates = seq(as.Date(paste0(current_year, "-01-01")), as.Date(paste0(current_year, "-12-31")), by = "day")
+
+# Initialize an empty dataframe to store the results
+sun_times_df = data.frame(
+  date = dates,
+  sunrise = as.POSIXct(NA),
+  sunset = as.POSIXct(NA)
+)
+
+# Loop over each date to get sunrise and sunset times
+for (i in 1:length(dates)) {
+  sun_times = getSunlightTimes(date = dates[i], lat = latitude, lon = longitude, keep = c("sunrise", "sunset"))
+  
+  # Convert sunrise and sunset times to POSIXct format
+  sun_times_df$sunrise[i] = as.POSIXct(sun_times$sunrise, format = "%Y-%m-%dT%H:%M:%S", tz = "UTC")
+  sun_times_df$sunset[i] = as.POSIXct(sun_times$sunset, format = "%Y-%m-%dT%H:%M:%S", tz = "UTC")
+}
+
+
+date_range_df = data.frame(
+  start_date = as.Date("2025-07-23"),
+  end_date = as.Date("2025-08-07")
+)
+
+
+start_date = date_range_df$start_date
+end_date = date_range_df$end_date
+
+# Filter sun_times_df based on the date range
+filtered_sun_times_df = sun_times_df[sun_times_df$date >= start_date & sun_times_df$date <= end_date, ]
+
+
+ggplot(incubation, aes(x=Time.local, y=TagRSSI)) +
+  geom_rect(data = filtered_sun_times_df, aes(xmin = sunset, xmax = sunrise, ymin = -Inf, ymax = Inf),
+            fill = "#FFBF00", alpha = 0.5, inherit.aes = FALSE) +
+  geom_line(size = 0.01) + 
+  xlab("Time") + theme_clean() +
+  scale_x_datetime(date_breaks = "600 min", date_labels = "%d/%m/%Y %H:%M") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  geom_hline(yintercept = -68, color = "blue", linetype = "dashed") + # First horizontal line
+  geom_hline(yintercept = -71, color = "blue", linetype = "dashed") + # Second horizontal line
+  geom_ribbon(aes(ymin = -71, ymax = -68), fill = "grey80", alpha = 0.5)
+
+ggsave("D:/Analysis/CTT/KRPWA2025/YBCU/Neo_incubation.pdf",
+       width = 8, height = 4)
+
+
+```
+

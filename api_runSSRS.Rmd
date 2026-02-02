@@ -1,0 +1,128 @@
+---
+title: "api_runSSRS.Rmd"
+author: "Patrick D. lorch"
+date: "2026-01-29"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Setup, download, and database
+
+This setup follows the CTT workshop approach to getting a database set up and then getting your node data into it.
+
+* It uses a .env file for the sensitive stuff like API key and password
+  * This will not be archived. 
+  * An example file is included. 
+  * Put your info in there and rename it .env
+  * Then make sure you have .env listed in your .gitignore file
+  
+I have left code for using a postgresql databas in, commented, so you can see how that would work, if you use something other than duckdb.  The original CTT code for these steps used a postgres database.  This is much harder to get up and running.  I tried to get the node data into an existing postgres database, but there were some version mismatches that prevented it from working. I recommend using duckdb.
+
+If you want to look at your database, after running all of the code, you can use a third party database viewer/IDE like DBeaver community (https://dbeaver.io/download/) and connect to the duckdb file.
+
+`outpath` will need to be rewritten to work on your computer.  It is where the .zip files you download from CTT servers will go.  You then ingest these into your database.
+
+You will also need to change the conn code here and in other files to match where your duckdb file is stored.
+
+```{r code}
+# install.packages('DBI')
+library(DBI)
+# install.packages('duckdb')
+# install.packages('duckplyr')
+library(duckdb)
+library(duckplyr)
+# install.packages('RPostgres')
+# library(RPostgres)
+
+# install.packages('dotenv')
+library(dotenv)
+
+# library(devtools)
+# install_github('cellular-tracking-technologies/celltracktech')
+library(celltracktech)
+
+# This may help you figure our how long this takes.  It may take several days to finish.
+start = Sys.time()
+
+####SETTINGS#####
+load_dot_env(file = '.env')
+my_token = Sys.getenv('API_KEY')
+# pg_db_pass = Sys.getenv('PG_DB_PASS')
+
+# Not used with duckdb method
+# db_name = "postgres" # postgis_32_ssrs"
+# pg_db_pass = Sys.getenv('PG_DB_PASS')
+# db_name = "postgres" # postgis_32_ssrs"
+
+myproject = "Southern Sierra Research Station" #this is your project name on your CTT account
+mystations = c('1F618DF06116', 'V3023D363C1C') # migrant corner, Red Tail Hill
+
+# Not used with duckdb method
+# conn = dbConnect(RPostgres::Postgres(), 
+#                   dbname = db_name, 
+#                   user = 'postgres',
+#                   password = pg_db_pass)
+
+conn = DBI::dbConnect(duckdb::duckdb(), 
+                       dbdir = file.path("C:",
+                       "Users",
+                       "PatrickLorch",
+                       "OneDrive - SSRS",
+                       "MotusGeneral",
+                       "CTT_DuckDB",
+                       "ctt_duckdb"), 
+                       read_only = FALSE)
+
+# This should only need to be done once. Uncomment these lines 
+#   and run to create a duckdb (or postgtres?) database.
+
+# celltracktech::create_database(my_token = my_token,
+#                                outpath = outpath,
+#                                myproject = myproject,
+#                                db_name = conn)
+
+
+# Not used with duckdb method
+# DBI::dbListConnections(conn)
+################
+
+# create dir if not exists
+dir.create(file.path("data", "ssrs"), showWarnings = FALSE)
+outpath = file.path("data",
+                    "ssrs")
+
+# Specifying celltracktech to avoid using, possibly old, functions
+# Need to narrow to one station and recent dates or it tends to fail
+#   before it is done doing the initial comparisons of lists of 
+#   files.
+# This function call gets data from CTT servers for a certain date 
+#   range and station id
+celltracktech::get_my_data(my_token, 
+            outpath = outpath , 
+            db_name = conn, 
+            myproject = myproject,
+            mystation = mystations[1], # Choose a station with node data
+            begin = "2024-07-06") # Choose the last date you did an update
+
+#the folder outpath is where you want your downloaded files to go
+
+# This call ingests all the downloaded data, stored in zipped files
+#   into the local database
+celltracktech::update_db(conn, outpath, myproject)
+
+# Cleanup
+rm(my_token, pg_db_pass)
+# dbDisconnect(conn)
+
+# This does the calculation of how long your download and update 
+#   steps took.
+
+time_elapsed = Sys.time() - start
+print(time_elapsed)
+
+```
+
+

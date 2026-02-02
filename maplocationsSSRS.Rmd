@@ -1,0 +1,249 @@
+---
+title: "maplocationsSSRS"
+author: "Patrick D. lorch"
+date: "2026-01-30"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+# Locations
+
+The goal of this script is to produce an .html using leaflet that can be shared and manipulated.
+
+
+## Look at locations
+
+Right now it looks like the assignment of crs = projcrs in each call to st_as_sf is ignored.  It is not being set anywhere I can find.
+
+Need to replace for loops with some sort of apply call.
+
+```{r alltagplots}
+library(raster)
+library(celltracktech)
+library(terra)
+library(tidyverse)
+library(DBI)
+library(sf)
+library(nlstools)
+library(ggthemes)
+library(htmlwidgets)
+library(leaflet.extras2)
+library(leaflet)
+library(suncalc)
+# install.packages("adehabitatHR")
+library(adehabitatHR) #80% KDE
+
+options(digits = 9)
+options(scipen = 999)
+
+coordinates(location.estimates) = ~UTMx_est + UTMy_est
+
+# Assign a projection to it
+#   the new .init and epsg language sets the datum (WGS84)
+# proj4string(location.estimates) = CRS("+proj=utm +zone=11")
+proj4string(location.estimates) = CRS("+init=epsg:32611")
+ud = kernelUD(location.estimates[,1], extent = 2)
+ver80 = st_as_sf(getverticeshr(ud, 80, unout = "km2")) %>% #80% KDE
+# For consistency
+# st_transform(crs = "+proj=longlat +datum=WGS84")
+  st_transform(crs = "+init=epsg:4326")
+
+df = st_as_sf(x = location.estimates,  #Tag points                       
+               coords = c("lon", "lat"),
+               crs = projcrs) %>%
+  st_transform("+init=epsg:4326")
+
+nodes_c = nodes
+
+coordinates(nodes_c) = ~UTMx + UTMy
+# proj4string(nodes_c) = CRS("+proj=utm +zone=11")
+proj4string(nodes_c) = CRS("+init=epsg:32611")
+nodes2 = st_as_sf(x = nodes_c,  #node points                       
+                   coords = c("lon", "lat"),
+                   crs = projcrs) %>%
+  st_transform("+init=epsg:4326")
+
+
+# Get all unique IDs used in df and ver80
+unique_ids <- unique(df$TagId)
+unique_kde_ids <- unique(ver80$id)
+all_ids <- unique(c(unique_ids, unique_kde_ids))
+
+# Redo these based on the new list if you are coming here later
+id_names <- c(
+  "071E2A66" = "Hyla",
+  "5255662A" = "Papilio",
+  "554C072A" = "Schista",
+  "612D4C2A" = "Neo"
+)
+
+manual_colors = c(
+  "071E2A66" = "#b32b19",
+  "5255662A" = "#44b319",
+  "554C072A" = "#f6faf5",
+  "612D4C2A" = "#9340e0")
+
+# Convert to a list (optional, depending on use case)
+id_colors = as.list(manual_colors)
+
+# Start the leaflet map
+tag_map = leaflet() %>%
+  addProviderTiles('Esri.WorldImagery', options = providerTileOptions())
+
+# Come back and get rid of loops
+# Points
+for (id in unique_ids) {
+  tag_map = tag_map %>%
+    addCircleMarkers(
+      label = ~paste(id_names[TagId], Time.group),
+      data = df %>% filter(TagId == id),
+      group = paste("Points", id_names[id]),   # <— changed
+      color = id_colors[[id]],
+      radius = 2,
+      stroke = FALSE,
+      fillOpacity = 1
+    )
+}
+
+# KDE polygons
+for (kde_id in unique_kde_ids) {
+  tag_map = tag_map %>%
+    addPolygons(
+      label = ~id_names[id],
+      data = ver80 %>% filter(id == kde_id),
+      group = paste("80% KDE", id_names[kde_id]),   # <— changed
+      color = id_colors[[kde_id]]
+    )
+}
+
+# Add node points
+tag_map = tag_map %>%
+  addCircleMarkers(
+    label = ~NodeId,
+    data = nodes2,
+    group = "Nodes",
+    color = "white",
+    weight = 3,
+    fillColor = "black",
+    radius = 4,
+    stroke = TRUE,
+    fillOpacity = 1
+  )
+
+
+# Layer groups now match exactly
+layer_groups = c(
+  paste("Points", id_names[unique_ids]),
+  paste("80% KDE", id_names[unique_kde_ids]),
+  "Nodes"
+)
+
+tag_map = tag_map %>%
+  addLayersControl(overlayGroups = layer_groups)
+
+# Save .html 
+htmlwidgets::saveWidget(tag_map, file=file.path(
+  analysis_outpath,"YBCU_All_Tags.html"),
+                        selfcontained = T)
+```
+
+## For each tag
+
+
+
+```{r eachtagplots}
+# install.packages('yyjsonr')
+library(yyjsonr)
+
+this_tag = "071E2A66"
+tag_map_sliding_071E2A66 = leaflet() %>%
+  addProviderTiles('Esri.WorldImagery', options = providerTileOptions()) %>%
+  addTimeslider(data = (df%>%filter(TagId == this_tag)),
+                options = timesliderOptions(
+                  position = "topright",
+                  timeAttribute = "Time.group",
+                  range = TRUE),
+                label = ~Time.group,
+                color = manual_colors[this_tag], 
+                radius =2, 
+                stroke = FALSE, 
+                fillOpacity = 1
+  )
+
+htmlwidgets::saveWidget(tag_map_sliding_071E2A66, 
+                        file = file.path(analysis_outpath,
+                                         paste0(this_tag,
+                                         ".html")),
+                        selfcontained = F)
+
+this_tag = "5255662A"
+tag_map_sliding_5255662A = leaflet() %>%
+  addProviderTiles('Esri.WorldImagery', options = providerTileOptions()) %>%
+  addTimeslider(data = (df%>%filter(TagId == this_tag)),
+                options = timesliderOptions(
+                  position = "topright",
+                  timeAttribute = "Time.group",
+                  range = TRUE),
+                label = ~Time.group,
+                color = manual_colors[this_tag], 
+                radius =2, 
+                stroke = FALSE, 
+                fillOpacity = 1
+  )
+
+htmlwidgets::saveWidget(tag_map_sliding_5255662A,                                           file = file.path(analysis_outpath,
+                                         paste0(this_tag,
+                                         ".html")),
+                        selfcontained = F)
+
+this_tag = "554C072A"
+tag_map_sliding_554C072A = leaflet() %>%
+  addProviderTiles('Esri.WorldImagery', options = providerTileOptions()) %>%
+  addTimeslider(data = (df%>%filter(TagId == this_tag)),
+                options = timesliderOptions(
+                  position = "topright",
+                  timeAttribute = "Time.group",
+                  range = TRUE),
+                label = ~Time.group,
+                color = manual_colors[this_tag], 
+                radius =2, 
+                stroke = FALSE, 
+                fillOpacity = 1
+  )
+
+htmlwidgets::saveWidget(tag_map_sliding_554C072A,                                 file = file.path(analysis_outpath,
+                                         paste0(this_tag,
+                                         ".html")),
+                        selfcontained = F)
+
+
+this_tag = "612D4C2A"
+tag_map_sliding_612D4C2A = leaflet() %>%
+  addProviderTiles('Esri.WorldImagery', options = providerTileOptions()) %>%
+  addTimeslider(data = (df%>%filter(TagId == this_tag)),
+                options = timesliderOptions(
+                  position = "topright",
+                  timeAttribute = "Time.group",
+                  range = TRUE),
+                label = ~Time.group,
+                color = manual_colors[this_tag], 
+                radius =2, 
+                stroke = FALSE, 
+                fillOpacity = 1
+  )
+
+htmlwidgets::saveWidget(tag_map_sliding_612D4C2A,
+                        file = file.path(analysis_outpath,
+                                         paste0(this_tag,
+                                         ".html")),
+                        selfcontained = F)
+
+
+
+
+
+
+```
+

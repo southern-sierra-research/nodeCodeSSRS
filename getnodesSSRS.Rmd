@@ -1,0 +1,131 @@
+---
+title: "getnodesSSRS.Rmd"
+author: "Patrick D. lorch"
+date: "2026-01-07"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Get node data for analysis
+
+Here we work with a .json version of the ArcGIS .gdb file to get node data into format CTT R code requires.
+
+Whatever you do to get accurate locations and metadata on your nodes (we use ArcGIS fieldmaps), you need to get the node data into R.
+
+Eventually, I would like to see a more automatic way to add the node data as a table in the duckdb.
+
+
+## Import Geo.json as spatial file
+
+Edwin sent a .gdb file with these data.  I exported it to .json with the following selections:
+
+  * Formatted JSON
+  * Output to GeoJSON
+  * Project to WGS84
+
+```{r importnodes}
+# install.packages("rjson")
+library(sf)
+library(dplyr)
+library(rjson)
+library(geojsonsf)
+
+node_json = file.path("C:", 
+                      "Users", 
+                      "PatrickLorch", 
+                      "SSRS", 
+                      "Southern Sierra Research Station - Documents", 
+                      "Projects", 
+                      "YBCU - Kern", 
+                      "Data", 
+                      "Motus node locations, tag deployment list, and trilateration code", 
+                      "Nodes_Kern_2022_2025.json")
+nodes_sf = read_sf(node_json)
+nodes_sf
+names(nodes_sf)
+View(nodes_sf)
+```
+
+
+## Fix some things to make filtering and plotting easier
+
+These were sent to me as a .gdb, so they had to be saved from ArcGIS as .json.  If they were sent as .shp file set, they could be imported directly and the "(.../1000)+8*3600) would not be needed.
+
+```{r datamod}
+# Since these happen in summer and conversion assumes seconds and
+#  UTC, we have to covert our dates from miliseconds (ArcGIS format)
+#  and +8 hours (summer and early fall) to get it in Pacific time
+names(nodes_sf)
+unique(nodes_sf$Project)
+nodes_sf = nodes_sf %>%
+  mutate(CreationDa = as.POSIXct((CreationDa/1000)+8*3600),
+         EditDate = as.POSIXct((EditDate/1000)+8*3600),
+         end_time = as.POSIXct((end_time/1000)+8*3600),
+         start_time = as.POSIXct((start_time/1000)+8*3600))
+# remove the frog points for now
+krp_nodes_sf = nodes_sf %>%
+  filter(grepl("KRP", Project))
+unique(krp_nodes_sf$Project)
+# This loses the sf class designation
+krp_nodes_sf = krp_nodes_sf %>%
+  tidyr::separate_wider_delim(Project, 
+                              delim = "_",
+                              names = c("Site", 
+                                    "Year", 
+                                    "Season", 
+                                    "Area_Type"),
+                              too_few = "align_start",
+                              cols_remove = F)
+# This restores the sf class designation
+krp_nodes_sf = st_as_sf(krp_nodes_sf)
+
+krp_nest_nodes_sf = krp_nodes_sf %>%
+  filter(Area_Type == "Nest")
+krp_grid_nodes_sf = krp_nodes_sf %>%
+  filter(is.na(Area_Type) | Area_Type != "Nest")
+```
+
+## Get a node file for analysis
+
+Based on Edwin's "YBCU Locator 2025.R" example.  
+
+Since I have a subset of his data, 
+
+* Don't need to filter down to nodes
+* Don't need to filter down to KRP
+
+The data from 2025 are much different year to year and seasonally. You will need to filter by some or all of Year, Season, and Area_Type.
+
+* 2022-2024, there was one grid (no sub-regional or seasonal differences)
+* 2025, spring was East only, Fall was East and West
+
+For now we do the filtering here.
+
+```{r nodes}
+library(sf)
+library(dplyr)
+
+yr = 2025
+seasn = "Spring"
+areatype = "East"
+
+View(krp_grid_nodes_sf)
+
+nodes_filtered = krp_grid_nodes_sf %>%
+  filter(Year == yr, Season == seasn, Area_Type == areatype) %>%
+  st_transform(crs = 32611) %>%
+  mutate(NodeId = as.factor(device_id),
+         UTMx = round(st_coordinates(.), digits = 2)[,1], #get UTM coordinates with 1cm error
+         UTMy = round(st_coordinates(.), digits = 2)[,2])
+
+nodes = nodes_filtered %>%
+  dplyr::select(NodeId, UTMx, UTMy) %>%
+  st_drop_geometry()
+
+```
+
+
+See maplocations for node map code.

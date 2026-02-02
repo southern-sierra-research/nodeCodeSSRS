@@ -1,0 +1,78 @@
+---
+title: "locateSSRS"
+author: "Patrick D. lorch"
+date: "2026-01-30"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Location analysis
+
+Takes the beep.data file from tagsSSRS and produces a map of location estimates.
+
+Trilateration code is taken from here:
+https://github.com/kpaxton75/EcolEvol.Manuscript_Optimizing.Trilateration
+I downloaded the .zip file and expanded it in a convenient spot.
+
+Output path is constructed from yr, seasn, and areatype set in getnodesSSRS.Rmd.
+
+
+
+```{r locate}
+library(tidyverse)
+
+outpath = file.path("data",
+                    "ssrs")
+
+localization_functions = file.path(
+  "EcolEvol.Manuscript_Optimizing.Trilateration-main",
+  "EcolEvol.Manuscript_Optimizing.Trilateration-main",
+  "4_Functions_RSS.Based.Localizations.R") 
+# 4_Functions_RSS.Based.Localizations_original.R)
+# Do this once
+# source(localization_functions)
+
+# Not sure this is ever used
+gen_min_seq = function(Start_time, End_time) { #Create function to expand minute ID
+  seq(from = Start_time, to = End_time, by = "min")
+}
+
+# uses yr, seasn, and areatype from getnodesSSRS.Rmd
+analysis_outpath = file.path(outpath, 
+                             "analysis", "location",
+                             "KRPWA", yr, seasn, areatype,
+                             "YBCU")
+
+# This scares me, but may be necessary
+# Delete all contents within the folder
+unlink(file.path(analysis_outpath, "*"), recursive = TRUE)
+# create dir if no exists
+dir.create(analysis_outpath, recursive = T)
+
+a = 51.605707941
+S = 0.009417587
+K = -110.181080858
+SLIDE.TIME = 2
+GROUP.TIME = "5 min"
+
+beep.grouped = prep.data(beep.data, nodes)
+
+DIST.filter = 1400
+RSS.filter = -110
+
+START = "XX"
+END = "NN"
+
+location.estimates = trilateration(beep.grouped)
+
+# Write tag points
+write.csv(location.estimates,
+          file.path(analysis_outpath,
+          "YBCU_location.estimates.csv"))
+
+
+```
+

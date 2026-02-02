@@ -1,0 +1,64 @@
+---
+title: "import_node_dataSSRS"
+author: "Patrick D. lorch"
+date: "2026-02-01"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Import beep files from manually downloaded node data
+
+The SETTINGS block below should be roughly the same as what you use in api_run file and elsewhere. The conn statement should be the same
+
+```{r importnodes}
+####SETTINGS#####
+library(dotenv)
+library(DBI)
+library(duckdb)
+library(duckplyr)
+library(celltracktech)
+
+load_dot_env(file = '.env')
+my_token = Sys.getenv('API_KEY')
+
+myproject = "Southern Sierra Research Station" #this is your project name on your CTT account
+
+# create dir if not exists
+# dir.create(file.path("data", "ssrs"), showWarnings = FALSE)
+outpath = file.path("data",
+                    "ssrs")
+
+
+conn = DBI::dbConnect(duckdb::duckdb(), 
+                       dbdir = file.path("C:",
+                       "Users",
+                       "PatrickLorch",
+                       "OneDrive - SSRS",
+                       "MotusGeneral",
+                       "CTT_DuckDB",
+                       "ctt_duckdb"), 
+                       read_only = FALSE)
+################
+
+
+# This may help you figure our how long this takes.  It may take several days to finish.
+start = Sys.time()
+
+#get node locations
+import_node_data(conn, 
+                 outpath,  
+                 myproject = myproject, 
+                 station_id = 'V3023D363C1C') #Run to import node data
+db_cleanup(conn) #Run after importing node data
+
+# This does the calculation of how long your download and update 
+#   steps took.
+
+time_elapsed = Sys.time() - start
+print(time_elapsed)
+
+```
+

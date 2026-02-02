@@ -1,0 +1,14 @@
+---
+title: "db_connectSSRS"
+author: "Patrick D. lorch"
+date: "2026-01-29"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Nothing yet
+
+Trying to decide if I need to move the conn statement here.

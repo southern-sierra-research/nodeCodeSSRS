@@ -1,0 +1,82 @@
+---
+title: "tagsSSRS.Rmd"
+author: "Patrick D. lorch"
+date: "2026-01-29"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Tags
+
+This reads in Edwin's tag file.
+
+```{r tags}
+library(dplyr)
+library(DBI)
+library(duckdb)
+library(duckplyr)
+library(lubridate)
+
+tagfile = file.path("C:", 
+                      "Users", 
+                      "PatrickLorch", 
+                      "SSRS", 
+                      "Southern Sierra Research Station - Documents", 
+                      "Projects", 
+                      "YBCU - Kern", 
+                      "Data", 
+                      "Motus node locations, tag deployment list, and trilateration code", 
+                      "tags.csv")
+
+tags = read.csv(tagfile) %>%
+  subset(nchar(as.character(mfgID)) > 4) %>%
+  mutate(bandNumber = as.character(bandNumber)) %>%
+  mutate(StartDate = as.Date("2025-05-15"),
+         TagId = as.factor(tagID)) %>%
+  filter(mfgID %in% c("071E2A66", "5255662A", "554C072A", "612D4C2A"))
+
+conn = DBI::dbConnect(duckdb::duckdb(), 
+                       dbdir = file.path("C:",
+                       "Users",
+                       "PatrickLorch",
+                       "OneDrive - SSRS",
+                       "MotusGeneral",
+                       "CTT_DuckDB",
+                       "ctt_duckdb"), 
+                       read_only = FALSE)
+db = tbl(conn, "raw")
+
+###filter tag beeps
+beep.data = as.data.frame(db) %>%
+  filter(tag_id %in% tags$mfgID) %>%
+  filter(!is.na(node_id)) %>%
+  mutate(SensorId = as.factor("Sensorstation"),
+         Time = as.POSIXct(time, tz = "UTC"),
+         RadioId = as.integer(radio_id),
+         TagId = as.factor(tag_id),
+         TagRSSI = as.integer(tag_rssi),
+         NodeId = as.factor(toupper(node_id)),
+         Validated = as.integer(1),
+         Time.local = as.POSIXct(with_tz(time, tz = "US/Pacific")),
+         v = as.numeric("2"),
+         Date = as.Date(Time.local, "%m/%d/%Y", tz = "US/Pacific"),
+         Hour = as.integer(strftime(Time.local, format="%H")),
+         Min = as.integer(strftime(Time.local, format="%M"))) %>% #create a row for each 3 inner minutes
+  dplyr::select(SensorId, Time, RadioId, TagId, TagRSSI, 
+                NodeId, Validated,
+                Time.local, v, Date, Hour, Min) %>%
+  filter(NodeId %in% nodes$NodeId,
+         Date > "2025-05-17") %>%
+  filter(Time > "2025-05-17 00:00:00")  #subset detections by date to reduce processing time
+
+# DBI::dbListConnections(conn)
+# Cleanup
+# dbDisconnect(conn)
+# duckdb::dbDisconnect(db)
+################
+
+```
+
